@@ -1,0 +1,45 @@
+# Office CCTV Viewer configuration (pre-filled for this office).
+# Contains the recorder password. Never upload this file.
+
+api:
+  listen: "127.0.0.1:1984"
+  static_dir: www
+
+rtsp:
+  listen: "127.0.0.1:8554"
+webrtc:
+  listen: "127.0.0.1:8555"
+
+streams:
+  cam1: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=1&subtype=1'
+  cam2: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=2&subtype=1'
+  cam3: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=3&subtype=1'
+  cam4: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=4&subtype=1'
+  cam5: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=5&subtype=1'
+  cam6: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=6&subtype=1'
+  cam7: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=7&subtype=1'
+  cam8: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=8&subtype=1'
+  cam9: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=9&subtype=1'
+  cam10: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=10&subtype=1'
+  cam11: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=11&subtype=1'
+  cam12: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=12&subtype=1'
+  cam13: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=13&subtype=1'
+  cam14: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=14&subtype=1'
+  cam15: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=15&subtype=1'
+  cam16: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=16&subtype=1'
+  cam1_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=1&subtype=0'
+  cam2_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=2&subtype=0'
+  cam3_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=3&subtype=0'
+  cam4_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=4&subtype=0'
+  cam5_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=5&subtype=0'
+  cam6_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=6&subtype=0'
+  cam7_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=7&subtype=0'
+  cam8_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=8&subtype=0'
+  cam9_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=9&subtype=0'
+  cam10_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=10&subtype=0'
+  cam11_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=11&subtype=0'
+  cam12_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=12&subtype=0'
+  cam13_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=13&subtype=0'
+  cam14_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=14&subtype=0'
+  cam15_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=15&subtype=0'
+  cam16_hd: 'rtsp://admin:p%40ssw0rd@192.168.100.100:554/cam/realmonitor?channel=16&subtype=0'
