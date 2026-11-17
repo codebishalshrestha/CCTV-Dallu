@@ -1,6 +1,5 @@
 @echo off
-rem Office CCTV Viewer - double-click to install.
 cd /d "%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" %*
-echo.
-pause
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 %*
+if errorlevel 1 pause
+if not exist go2rtc.yaml pause

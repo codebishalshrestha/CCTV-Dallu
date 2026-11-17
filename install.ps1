@@ -172,7 +172,12 @@ try {
   # ---- 4. Camera settings ----------------------------------------------------------------
   Write-Step '4/5  Camera settings'
   $cfgPath = Join-Path $InstallDir 'go2rtc.yaml'
-  if ((Test-Path $cfgPath) -and -not $Reconfigure) {
+  $bundled = Join-Path $Root 'go2rtc.yaml'
+  $Prefilled = Test-Path $bundled
+  if ($Prefilled -and -not $Reconfigure) {
+    Copy-Item $bundled $cfgPath -Force
+    Write-Ok 'Camera settings found next to the installer and applied (no questions needed)'
+  } elseif ((Test-Path $cfgPath) -and -not $Reconfigure) {
     Write-Ok 'Keeping your existing camera settings (run install.bat -Reconfigure to change them)'
   } else {
     if ([string]::IsNullOrWhiteSpace($Ip)) {
@@ -239,6 +244,7 @@ try {
 
   $auto = $true
   if ($NoAutoStart) { $auto = $false }
+  elseif ($Prefilled -and -not $Reconfigure) { $auto = $true }
   elseif (-not $AutoStart) { $auto = Ask-YesNo '   Show the cameras full screen on the second display (TV/monitor) every time this PC starts?' $true }
   $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Office CCTV.lnk'
   if ($auto) {
@@ -263,7 +269,7 @@ try {
     Write-Host '  - For it to come back after a restart or power cut with nobody at the PC, set Windows to'
     Write-Host '    sign in automatically (press Win+R, type netplwiz, untick "Users must enter a user name and password").'
     Write-Host '  - Set the display mode to Extend (Win+P), not Duplicate, so Windows sees the second screen.'
-    if (Ask-YesNo '  Start it now?' $true) {
+    if ($Prefilled -or (Ask-YesNo '  Start it now?' $true)) {
       Start-Process -FilePath $PS -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchPs`""
     }
   } elseif (Ask-YesNo '  Open it now?' $true) {
