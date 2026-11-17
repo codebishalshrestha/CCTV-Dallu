@@ -201,8 +201,12 @@ function setState(t, s) {
 /* Quality: "HD" uses the recorder's main streams (name_hd) when available, "Fast" uses the light sub streams. */
 let hdOn = true;
 try { hdOn = localStorage.getItem('cctv-hd') !== '0'; } catch (e) {}
+/* On a PC that cannot decode every full-quality stream at once, the grid switches itself to the light streams
+   (smooth) and a camera you open gets its full-quality stream. HD button clears this and tries again. */
+let autoFast = false;
+try { autoFast = localStorage.getItem('cctv-auto') === '1'; } catch (e) {}
 const qualityBtn = document.getElementById('quality');
-const showQuality = () => { qualityBtn.textContent = hdOn ? 'HD' : 'Fast'; };
+const showQuality = () => { qualityBtn.textContent = hdOn ? (autoFast ? 'Auto' : 'HD') : 'Fast'; };
 showQuality();
 
 function build(all) {
@@ -228,8 +232,10 @@ function build(all) {
 
     const t = { name, el, player, snap: el.querySelector('.snap'), seen: el.querySelector('.off small'), timer: 0, snapTimer: 0, snapStart: 0 };
     const hasHd = hdNames.has(name + '_hd');
-    let useHd = hdOn && hasHd;
+    let useHd = hdOn && hasHd && !autoFast;
     const source = () => new URL('api/ws?src=' + encodeURIComponent(useHd ? name + '_hd' : name), location.href);
+    t.hasHd = hasHd;
+    t.setHd = v => { if (!hasHd || useHd === v) return; useHd = v; player.src = source(); arm(); };
     const live = () => { clearTimeout(t.timer); setState(t, 'live'); };
     const arm = () => {
       clearTimeout(t.timer);
@@ -248,7 +254,11 @@ function build(all) {
     player.src = source();
     arm();
 
-    el.addEventListener('click', () => { if (el.dataset.state === 'live') el.classList.toggle('expanded'); });
+    el.addEventListener('click', () => {
+      if (el.dataset.state !== 'live') return;
+      const open = el.classList.toggle('expanded');
+      if (autoFast && hdOn) t.setHd(open);   // slow PC: grid uses light streams, the opened camera gets full quality
+    });
     tiles.push(t);
   });
   update();
@@ -262,11 +272,41 @@ function load() {
 document.getElementById('reload').onclick = load;
 qualityBtn.onclick = () => {
   hdOn = !hdOn;
-  try { localStorage.setItem('cctv-hd', hdOn ? '1' : '0'); } catch (e) {}
+  autoFast = false;
+  try { localStorage.setItem('cctv-hd', hdOn ? '1' : '0'); localStorage.removeItem('cctv-auto'); } catch (e) {}
   showQuality();
   load();
 };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.tile.expanded').forEach(t => t.classList.remove('expanded')); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('.tile.expanded').forEach(el => {
+    el.classList.remove('expanded');
+    const t = tiles.find(x => x.el === el); if (t && autoFast && hdOn) t.setHd(false);
+  });
+});
+
+/* Watch playback: if full-quality tiles keep dropping frames, move the grid to the light streams */
+let prevQ = new Map(), bad = 0;
+setInterval(() => {
+  if (autoFast || !hdOn) { prevQ = new Map(); return; }
+  let total = 0, dropped = 0;
+  tiles.forEach(t => {
+    if (t.el.dataset.state !== 'live' || !t.hasHd || t.el.classList.contains('expanded')) return;
+    const q = t.player.video.getVideoPlaybackQuality && t.player.video.getVideoPlaybackQuality();
+    if (!q) return;
+    const p = prevQ.get(t);
+    if (p && q.totalVideoFrames >= p.total) { total += q.totalVideoFrames - p.total; dropped += q.droppedVideoFrames - p.dropped; }
+    prevQ.set(t, { total: q.totalVideoFrames, dropped: q.droppedVideoFrames });
+  });
+  if (total < 100) return;
+  bad = dropped / total > 0.06 ? bad + 1 : 0;
+  if (bad >= 3) {   // about 15 seconds of trouble in a row
+    autoFast = true; bad = 0; prevQ = new Map();
+    try { localStorage.setItem('cctv-auto', '1'); } catch (e) {}
+    showQuality();
+    tiles.forEach(t => { if (!t.el.classList.contains('expanded')) t.setHd(false); });
+  }
+}, 5000);
 
 const clock = document.getElementById('clock');
 const tick = () => clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

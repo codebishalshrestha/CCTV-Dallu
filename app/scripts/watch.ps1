@@ -107,7 +107,7 @@ function Start-Kiosk($screen) {
     '--no-first-run', '--no-default-browser-check',
     '--disable-session-crashed-bubble', '--disable-infobars',
     '--autoplay-policy=no-user-gesture-required',
-    '--noerrdialogs', '--disable-translate', '--overscroll-history-navigation=0',
+    '--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--enable-zero-copy', '--noerrdialogs', '--disable-translate', '--overscroll-history-navigation=0',
     '--disable-features=CalculateNativeWinOcclusion,TranslateUI',
     "--window-position=$($b.X),$($b.Y)",
     "--window-size=$($b.Width),$($b.Height)"
