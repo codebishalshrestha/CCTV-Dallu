@@ -205,6 +205,9 @@ try { hdOn = localStorage.getItem('cctv-hd') !== '0'; } catch (e) {}
    (smooth) and a camera you open gets its full-quality stream. HD button clears this and tries again. */
 let autoFast = false;
 try { autoFast = localStorage.getItem('cctv-auto') === '1'; } catch (e) {}
+/* Small screens (about 1366 wide or less): each tile is only ~340 px wide, so a 1440p picture shrunk that far turns
+   grainy. Use the light streams in the grid there, and the full-quality stream when a camera is opened. */
+if (innerWidth * (devicePixelRatio || 1) < 1500) autoFast = true;
 const qualityBtn = document.getElementById('quality');
 const showQuality = () => { qualityBtn.textContent = hdOn ? (autoFast ? 'Auto' : 'HD') : 'Fast'; };
 showQuality();
