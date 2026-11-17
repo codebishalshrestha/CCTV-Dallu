@@ -24,7 +24,7 @@ function Log([string]$text) {
   try {
     $line = '{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $text
     Add-Content -Path $LogFile -Value $line -Encoding UTF8
-    if ((Get-Item $LogFile).Length -gt 200KB) { Get-Content $LogFile -Tail 200 | Set-Content $LogFile -Encoding UTF8 }
+    if ((Get-Item $LogFile).Length -gt 200KB) { $keep = @(Get-Content $LogFile -Tail 200); Set-Content -Path $LogFile -Value $keep -Encoding UTF8 }
   } catch { }
 }
 
@@ -89,7 +89,7 @@ function Get-SecondScreen {
 function Get-KioskProcesses {
   try {
     return @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" |
-      Where-Object { $_.CommandLine -and $_.CommandLine -like "*$ProfileDir*" })
+      Where-Object { $_.CommandLine -and $_.CommandLine.Contains($ProfileDir) })
   } catch { return @() }
 }
 
@@ -107,6 +107,8 @@ function Start-Kiosk($screen) {
     '--no-first-run', '--no-default-browser-check',
     '--disable-session-crashed-bubble', '--disable-infobars',
     '--autoplay-policy=no-user-gesture-required',
+    '--noerrdialogs', '--disable-translate', '--overscroll-history-navigation=0',
+    '--disable-features=CalculateNativeWinOcclusion,TranslateUI',
     "--window-position=$($b.X),$($b.Y)",
     "--window-size=$($b.Width),$($b.Height)"
   )

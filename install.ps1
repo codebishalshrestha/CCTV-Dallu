@@ -140,7 +140,8 @@ try {
   $srcScripts = Join-Path $Root 'app\scripts'
   if (-not (Test-Path (Join-Path $srcWww 'index.html'))) { throw "Viewer files not found in $srcWww. Extract the whole ZIP first, then run install.bat." }
   # Stop a running copy so files can be replaced
-  & $PS -NoProfile -ExecutionPolicy Bypass -File (Join-Path $srcScripts 'stop.ps1') 2>$null | Out-Null
+  $oldStop = Join-Path $InstallDir 'stop.ps1'
+  if (Test-Path $oldStop) { & $PS -NoProfile -ExecutionPolicy Bypass -File $oldStop 2>$null | Out-Null }
   $dstWww = Join-Path $InstallDir 'www'
   New-Item -ItemType Directory -Force -Path $dstWww | Out-Null
   Copy-Item -Path (Join-Path $srcWww '*') -Destination $dstWww -Recurse -Force
