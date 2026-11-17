@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Office CCTV</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #07080a;
+    --line: #1b1d21;
+    --text: #f5f5f7;
+    --muted: #7c7c83;
+    --live: #30d158;
+    --ease: cubic-bezier(.22,1,.36,1);
+    --bar: 44px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { background: var(--bg); height: 100%; overflow: hidden; }
+  body {
+    color: var(--text);
+    font: 13px/1.4 -apple-system, "SF Pro Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column;
+  }
+
+  header {
+    height: var(--bar); flex: none;
+    display: flex; align-items: center; gap: 12px; padding: 0 14px;
+    background: rgba(18,18,20,.9);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+  .summary { color: var(--muted); display: flex; align-items: center; gap: 7px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 3px rgba(48,209,88,.15); }
+  .spacer { flex: 1; }
+  #clock { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .btn {
+    appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 500; color: var(--text);
+    background: rgba(255,255,255,.09); padding: 5px 12px; border-radius: 999px;
+    transition: background .2s var(--ease), transform .2s var(--ease);
+  }
+  .btn:hover { background: rgba(255,255,255,.16); }
+  .btn:active { transform: scale(.96); }
+
+  /* Camera wall: working cameras first, the rest fill the last slots */
+  main { flex: 1; min-height: 0; padding: 0; }
+  #grid {
+    height: 100%; display: grid; gap: 2px; background: var(--line);
+    grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--rows, 4), minmax(0, 1fr));
+  }
+  .tile { position: relative; overflow: hidden; background: #000; cursor: pointer; min-height: 0; }
+  .tile .cam { position: absolute; inset: 0; display: block; }
+  .tile video { width: 100%; height: 100%; object-fit: cover; background: #000; display: block; opacity: 0; transition: opacity .5s var(--ease); }
+  .tile[data-state="live"] video { opacity: 1; }
+
+  .label {
+    position: absolute; left: 10px; top: 10px;
+    padding: 2px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 500; text-transform: capitalize; letter-spacing: .01em;
+    background: rgba(0,0,0,.5);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    pointer-events: none; display: flex; align-items: center; gap: 6px;
+    z-index: 2;
+  }
+  .label i { width: 5px; height: 5px; border-radius: 50%; background: #555; }
+  .tile[data-state="live"] .label i { background: var(--live); }
+
+  .tile[data-state="connecting"]::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.04) 50%, transparent 70%);
+    background-size: 200% 100%; animation: shimmer 1.6s linear infinite;
+  }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+  /* Not working: calm slate panel, optional last-seen snapshot */
+  .tile[data-state="offline"] { background: #14161a; cursor: default; }
+  .snap {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    filter: grayscale(1) brightness(.7); opacity: .4; display: none;
+  }
+  .tile[data-state="offline"].has-snap .snap { display: block; }
+  .off {
+    position: absolute; inset: 0; z-index: 1; display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    color: #3a3d44; pointer-events: none;
+  }
+  .off svg { width: 22%; max-width: 110px; min-width: 40px; height: auto; }
+  .off span { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+  .off small { font-size: 11px; color: #6c6f77; letter-spacing: 0; text-transform: none; min-height: 1em; }
+  .tile[data-state="offline"] .off { display: flex; }
+  .tile[data-state="offline"].has-snap .off { justify-content: flex-end; padding-bottom: 14px; color: #c5c7cc; }
+  .tile[data-state="offline"].has-snap .off svg { display: none; }
+  .tile[data-state="offline"].has-snap .off small { color: #a9acb3; }
+
+  .tile.expanded { position: fixed; inset: 0; z-index: 20; cursor: zoom-out; animation: pop .3s var(--ease); }
+  .tile.expanded video { object-fit: contain; }
+  .tile.expanded .label { left: 16px; top: 16px; font-size: 13px; }
+  @keyframes pop { from { opacity: .5; transform: scale(.98); } to { opacity: 1; transform: none; } }
+
+  #empty { grid-column: 1 / -1; align-self: center; text-align: center; color: var(--muted); background: var(--bg); }
+
+  /* Wall mode (?wall): for a dedicated screen. No top bar, cursor hides when idle. */
+  body.wall header { display: none; }
+  body.wall.idle, body.wall.idle * { cursor: none !important; }
+
+  @media (max-width: 700px) { #clock { display: none; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Office CCTV</h1>
+  <div class="summary"><span class="dot"></span><span id="summary">Connecting…</span></div>
+  <div class="spacer"></div>
+  <span id="clock"></span>
+  <button class="btn" id="quality" title="Switch between full quality and light streams">HD</button>
+  <button class="btn" id="reload">Reload</button>
+</header>
+<main><div id="grid"></div></main>
+
+<script type="module">
+import { VideoRTC } from './video-rtc.js';
+
+/* Minimal player: no overlay text, state is reported by the page. */
+class Cam extends VideoRTC {
+  oninit() {
+    super.oninit();
+    const v = this.video;
+    v.muted = true; v.autoplay = true; v.playsInline = true; v.controls = false;
+    this.appendChild(v);
+  }
+}
+customElements.define('cam-player', Cam);
+
+const WALL = new URLSearchParams(location.search).has('wall');
+if (WALL) document.body.classList.add('wall');
+
+const grid = document.getElementById('grid');
+const summary = document.getElementById('summary');
+const OFFLINE_AFTER = 12000;   // light stream
+const HD_START_TIMEOUT = 25000; // full-quality stream (10 at once can be slow to start)
+const SNAP_EVERY = 15000;
+const STORE = 'cctv-last-seen';
+let tiles = [];
+
+/* Last-seen snapshots, kept in this browser */
+let snaps = {};
+try { snaps = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { snaps = {}; }
+const saveSnaps = () => { try { localStorage.setItem(STORE, JSON.stringify(snaps)); } catch (e) {} };
+
+const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 6H14a3 3 0 013 3v1.4l4-2.4v8"/><path d="M15 17H6a3 3 0 01-3-3V9a3 3 0 011.5-2.6"/></svg>';
+const pretty = n => n.replace(/[_-]/g, ' ');
+
+function seenText(ts) {
+  const d = new Date(ts), now = new Date();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === now.toDateString() ? `Last seen ${time}` : `Last seen ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
+}
+
+function showSnap(t) {
+  const s = snaps[t.name];
+  t.el.classList.toggle('has-snap', !!s);
+  if (s) { t.snap.src = s.img; t.seen.textContent = seenText(s.ts); }
+  else t.seen.textContent = '';
+}
+
+function capture(t) {
+  const v = t.player.video;
+  if (t.el.dataset.state !== 'live' || !v.videoWidth) return;
+  try {
+    const c = document.createElement('canvas');
+    c.width = 320; c.height = Math.round(320 * v.videoHeight / v.videoWidth);
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    snaps[t.name] = { img: c.toDataURL('image/jpeg', .6), ts: Date.now() };
+    saveSnaps();
+  } catch (e) {}
+}
+
+/* Working cameras first (in number order); cameras with no signal fill the last slots. */
+function update() {
+  const live = tiles.filter(t => t.el.dataset.state === 'live').length;
+  const off = tiles.filter(t => t.el.dataset.state === 'offline').length;
+  tiles.forEach((t, i) => { t.el.style.order = (t.el.dataset.state === 'offline' ? 1000 : 0) + i; });
+  grid.style.setProperty('--cols', Math.max(1, Math.min(4, tiles.length)));
+  grid.style.setProperty('--rows', Math.max(1, Math.ceil(tiles.length / 4)));
+  const pending = tiles.length - live - off;
+  summary.textContent = pending && !live && !off ? 'Connecting…' : `${live} live` + (off ? ` · ${off} offline` : '');
+}
+
+function setState(t, s) {
+  if (t.el.dataset.state === s) return;
+  t.el.dataset.state = s;
+  if (s === 'offline') showSnap(t);
+  update();
+}
+
+/* Quality: "HD" uses the recorder's main streams (name_hd) when available, "Fast" uses the light sub streams. */
+let hdOn = true;
+try { hdOn = localStorage.getItem('cctv-hd') !== '0'; } catch (e) {}
+const qualityBtn = document.getElementById('quality');
+const showQuality = () => { qualityBtn.textContent = hdOn ? 'HD' : 'Fast'; };
+showQuality();
+
+function build(all) {
+  grid.innerHTML = '';
+  tiles.forEach(t => { clearTimeout(t.timer); clearTimeout(t.snapStart); clearInterval(t.snapTimer); });
+  tiles = [];
+  const hdNames = new Set(all.filter(n => n.endsWith('_hd')));
+  const names = all.filter(n => !n.endsWith('_hd'));
+  qualityBtn.hidden = hdNames.size === 0;
+  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (!names.length) { grid.innerHTML = '<div id="empty">No cameras configured.</div>'; summary.textContent = 'No cameras'; return; }
+
+  names.forEach(name => {
+    const el = document.createElement('div');
+    el.className = 'tile';
+    el.dataset.state = 'connecting';
+    el.innerHTML = `<img class="snap" alt=""><div class="off">${ICON}<span>No signal</span><small></small></div><div class="label"><i></i>${pretty(name)}</div>`;
+
+    const player = document.createElement('cam-player');
+    player.className = 'cam';
+    player.mode = 'mse';   // reliable TCP delivery: no blocky/smeared frames from dropped packets
+    el.prepend(player);
+
+    const t = { name, el, player, snap: el.querySelector('.snap'), seen: el.querySelector('.off small'), timer: 0, snapTimer: 0, snapStart: 0 };
+    const hasHd = hdNames.has(name + '_hd');
+    let useHd = hdOn && hasHd;
+    const source = () => new URL('api/ws?src=' + encodeURIComponent(useHd ? name + '_hd' : name), location.href);
+    const live = () => { clearTimeout(t.timer); setState(t, 'live'); };
+    const arm = () => {
+      clearTimeout(t.timer);
+      t.timer = setTimeout(() => {
+        if (el.dataset.state === 'live') return;
+        if (useHd) { useHd = false; player.src = source(); arm(); }   // HD didn't start: fall back to the light stream
+        else setState(t, 'offline');
+      }, useHd ? HD_START_TIMEOUT : OFFLINE_AFTER);
+    };
+
+    grid.appendChild(el);
+    player.video.addEventListener('playing', () => { live(); setTimeout(() => capture(t), 2500); });
+    player.video.addEventListener('timeupdate', () => { if (player.video.currentTime > 0 && el.dataset.state !== 'live') live(); });
+    player.video.addEventListener('emptied', () => { if (el.dataset.state === 'live') { setState(t, 'connecting'); arm(); } });
+    t.snapStart = setTimeout(() => { t.snapTimer = setInterval(() => capture(t), SNAP_EVERY); }, Math.random() * SNAP_EVERY);
+    player.src = source();
+    arm();
+
+    el.addEventListener('click', () => { if (el.dataset.state === 'live') el.classList.toggle('expanded'); });
+    tiles.push(t);
+  });
+  update();
+}
+
+function load() {
+  fetch('api/streams').then(r => r.json()).then(o => build(Object.keys(o)))
+    .catch(() => { summary.textContent = 'Viewer not running. Start start.bat'; });
+}
+
+document.getElementById('reload').onclick = load;
+qualityBtn.onclick = () => {
+  hdOn = !hdOn;
+  try { localStorage.setItem('cctv-hd', hdOn ? '1' : '0'); } catch (e) {}
+  showQuality();
+  load();
+};
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.tile.expanded').forEach(t => t.classList.remove('expanded')); });
+
+const clock = document.getElementById('clock');
+const tick = () => clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+tick(); setInterval(tick, 15000);
+
+/* Keep the screen awake while the viewer is open */
+let wakeLock = null;
+async function keepAwake() {
+  try { if ('wakeLock' in navigator && document.visibilityState === 'visible') wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+keepAwake();
+document.addEventListener('visibilitychange', keepAwake);
+
+if (WALL) {
+  /* Hide the mouse pointer after 3 seconds without movement */
+  let idleTimer = 0;
+  const wake = () => { document.body.classList.remove('idle'); clearTimeout(idleTimer); idleTimer = setTimeout(() => document.body.classList.add('idle'), 3000); };
+  addEventListener('mousemove', wake); wake();
+  /* Fresh start every 6 hours keeps a screen that runs for weeks healthy */
+  setTimeout(() => location.reload(), 6 * 60 * 60 * 1000);
+}
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+# Never commit camera passwords or downloaded binaries
+go2rtc.yaml
+*.exe
+*.zip
+.idea/
+.vscode/
