@@ -46,7 +46,7 @@ Nothing else is installed. No admin rights are needed.
 ## Change settings or update
 
 - **Change recorder, password or channel count:** run `install.bat -Reconfigure` (or edit `%LOCALAPPDATA%\OfficeCCTV\go2rtc.yaml`).
-- **Update the viewer:** download the newer ZIP and run `install.bat` again. Your camera settings are kept.
+- **Update the viewer:** download the newer ZIP and run `install.bat` again. It first stops and removes the old copy (old page, scripts, go2rtc, shortcuts and the wall's browser data, and any go2rtc started by hand from another folder), then installs everything fresh. Only your camera settings are kept.
 - **Remove everything:** double-click `uninstall.bat`.
 
 ## Office TV setup (automatic, no login)

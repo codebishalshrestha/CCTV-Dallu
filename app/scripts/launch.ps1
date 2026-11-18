@@ -3,7 +3,8 @@
   Starts go2rtc first if it is not running.
 #>
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$url = 'http://localhost:1984/index.html'
+$ver = try { (Get-Item (Join-Path $dir 'www\index.html')).LastWriteTime.Ticks } catch { 0 }
+$url = "http://localhost:1984/index.html?v=$ver"
 
 function Test-Port($port) {
   $c = New-Object System.Net.Sockets.TcpClient

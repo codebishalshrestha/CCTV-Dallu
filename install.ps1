@@ -134,18 +134,58 @@ try {
   else { Write-Warn2 'Chrome or Edge not found. Install Chrome or Edge, then run this installer again.' }
 
   # ---- 2. Copy the viewer ----------------------------------------------------------------
-  Write-Step "2/5  Installing the viewer to $InstallDir"
-  New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+  Write-Step "2/5  Removing any previous copy, then installing to $InstallDir"
   $srcWww = Join-Path $Root 'app\www'
   $srcScripts = Join-Path $Root 'app\scripts'
   if (-not (Test-Path (Join-Path $srcWww 'index.html'))) { throw "Viewer files not found in $srcWww. Extract the whole ZIP first, then run install.bat." }
-  # Stop a running copy so files can be replaced
-  $oldStop = Join-Path $InstallDir 'stop.ps1'
-  if (Test-Path $oldStop) { & $PS -NoProfile -ExecutionPolicy Bypass -File $oldStop 2>$null | Out-Null }
+
+  # a) Stop everything that belongs to an older copy: the watcher, the wall window, and every go2rtc
+  #    (including one started by hand from another folder, which would hold port 1984 and serve old files).
+  try {
+    Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" |
+      Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and ($_.CommandLine.Contains('watch.ps1') -or $_.CommandLine.Contains('launch.ps1')) } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  } catch { }
+  try {
+    Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" |
+      Where-Object { $_.CommandLine -and $_.CommandLine.Contains('OfficeCCTV') } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  } catch { }
+  $oldEngines = @(Get-Process -Name go2rtc -ErrorAction SilentlyContinue)
+  if ($oldEngines.Count -gt 0) { $oldEngines | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Ok "Stopped $($oldEngines.Count) running go2rtc" }
+  Start-Sleep -Milliseconds 1500
+  if (Test-TcpPort '127.0.0.1' 1984 1000) { Write-Warn2 'Something else is still using port 1984. Close it (or restart the PC) if the viewer does not open.' }
+
+  # b) Remove old shortcuts
+  foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('CommonDesktopDirectory'))) {
+    foreach ($n in @('Office CCTV.lnk', 'CCTV.lnk')) {
+      $lnk = Join-Path $folder $n
+      if (Test-Path $lnk) { Remove-Item $lnk -Force -ErrorAction SilentlyContinue }
+    }
+  }
+
+  # c) Delete the old install folder (old page, scripts, go2rtc, browser profile with old saved settings),
+  #    keeping only the camera settings so you are not asked again
+  $savedCfg = $null
+  $oldCfg = Join-Path $InstallDir 'go2rtc.yaml'
+  if (Test-Path $oldCfg) { $savedCfg = [IO.File]::ReadAllText($oldCfg) }
+  if (Test-Path $InstallDir) {
+    for ($try = 0; $try -lt 5 -and (Test-Path $InstallDir); $try++) {
+      Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+      if (Test-Path $InstallDir) { Start-Sleep -Seconds 1 }
+    }
+    if (Test-Path $InstallDir) { throw "Could not remove the old copy in $InstallDir (a file is still in use). Restart the PC and run install.bat again." }
+    Write-Ok 'Previous installation removed'
+  }
+
+  # d) Fresh copy
+  New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+  if ($savedCfg) { [IO.File]::WriteAllText($oldCfg, $savedCfg, (New-Object System.Text.UTF8Encoding($false))) }
   $dstWww = Join-Path $InstallDir 'www'
   New-Item -ItemType Directory -Force -Path $dstWww | Out-Null
   Copy-Item -Path (Join-Path $srcWww '*') -Destination $dstWww -Recurse -Force
   Copy-Item -Path (Join-Path $srcScripts '*.ps1') -Destination $InstallDir -Force
+  Get-ChildItem $InstallDir -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
   Write-Ok 'Viewer page and launcher installed'
 
   # ---- 3. Download go2rtc ----------------------------------------------------------------

@@ -16,7 +16,8 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
-$Url      = 'http://localhost:1984/index.html?wall=1'
+$ver      = try { (Get-Item (Join-Path $Dir 'www\index.html')).LastWriteTime.Ticks } catch { 0 }
+$Url      = "http://localhost:1984/index.html?wall=1&v=$ver"
 $ProfileDir = Join-Path $Dir 'browser-profile'
 $LogFile  = Join-Path $Dir 'watch.log'
 
