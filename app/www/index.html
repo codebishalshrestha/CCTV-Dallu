@@ -101,6 +101,7 @@
   .tile.expanded .label { left: 16px; top: 16px; font-size: 13px; }
   @keyframes pop { from { opacity: .5; transform: scale(.98); } to { opacity: 1; transform: none; } }
 
+  #grid.only-live .tile[data-state="offline"] { display: none; }
   #empty { grid-column: 1 / -1; align-self: center; text-align: center; color: var(--muted); background: var(--bg); }
 
   /* Wall mode (?wall): for a dedicated screen. No top bar, cursor hides when idle. */
@@ -117,6 +118,7 @@
   <div class="summary"><span class="dot"></span><span id="summary">Connecting…</span></div>
   <div class="spacer"></div>
   <span id="clock"></span>
+  <button class="btn" id="view" title="Show only working cameras, or all channels">All 16</button>
   <button class="btn" id="quality" title="Switch between full quality and light streams">HD</button>
   <button class="btn" id="reload">Reload</button>
 </header>
@@ -132,6 +134,13 @@ class Cam extends VideoRTC {
     const v = this.video;
     v.muted = true; v.autoplay = true; v.playsInline = true; v.controls = false;
     this.appendChild(v);
+  }
+  /* Switch to another stream, or stop (url empty). VideoRTC ignores a new src while connected, so close first. */
+  setSource(url) {
+    if (this.reconnectTID) { clearTimeout(this.reconnectTID); this.reconnectTID = 0; }
+    this.ondisconnect();
+    this.wsURL = '';
+    if (url) this.src = url;
   }
 }
 customElements.define('cam-player', Cam);
@@ -185,8 +194,11 @@ function update() {
   const live = tiles.filter(t => t.el.dataset.state === 'live').length;
   const off = tiles.filter(t => t.el.dataset.state === 'offline').length;
   tiles.forEach((t, i) => { t.el.style.order = (t.el.dataset.state === 'offline' ? 1000 : 0) + i; });
-  grid.style.setProperty('--cols', Math.max(1, Math.min(4, tiles.length)));
-  grid.style.setProperty('--rows', Math.max(1, Math.ceil(tiles.length / 4)));
+  const shown = onlyLive ? Math.max(1, tiles.length - off) : tiles.length;
+  const cols = onlyLive ? Math.min(4, Math.ceil(Math.sqrt(shown))) : Math.min(4, shown);
+  grid.style.setProperty('--cols', Math.max(1, cols));
+  grid.style.setProperty('--rows', Math.max(1, Math.ceil(shown / Math.max(1, cols))));
+  showView();
   const pending = tiles.length - live - off;
   summary.textContent = pending && !live && !off ? 'Connecting…' : `${live} live` + (off ? ` · ${off} offline` : '');
 }
@@ -204,10 +216,11 @@ try { hdOn = localStorage.getItem('cctv-hd') !== '0'; } catch (e) {}
 /* On a PC that cannot decode every full-quality stream at once, the grid switches itself to the light streams
    (smooth) and a camera you open gets its full-quality stream. HD button clears this and tries again. */
 let autoFast = false;
-try { autoFast = localStorage.getItem('cctv-auto') === '1'; } catch (e) {}
+try { localStorage.removeItem('cctv-auto'); } catch (e) {}   // older versions saved this forever
 /* Small screens (about 1366 wide or less): each tile is only ~340 px wide, so a 1440p picture shrunk that far turns
    grainy. Use the light streams in the grid there, and the full-quality stream when a camera is opened. */
-if (innerWidth * (devicePixelRatio || 1) < 1500) autoFast = true;
+const smallScreen = innerWidth * (devicePixelRatio || 1) < 1500;
+if (smallScreen) autoFast = true;
 const qualityBtn = document.getElementById('quality');
 const showQuality = () => { qualityBtn.textContent = hdOn ? (autoFast ? 'Auto' : 'HD') : 'Fast'; };
 showQuality();
@@ -238,23 +251,30 @@ function build(all) {
     let useHd = hdOn && hasHd && !autoFast;
     const source = () => new URL('api/ws?src=' + encodeURIComponent(useHd ? name + '_hd' : name), location.href);
     t.hasHd = hasHd;
-    t.setHd = v => { if (!hasHd || useHd === v) return; useHd = v; player.src = source(); arm(); };
+    t.lastT = 0; t.lastMove = Date.now();
+    /* Reconnect from scratch (after a power cut the recorder and cameras come back minutes later) */
+    t.retry = (light) => { useHd = !light && hdOn && hasHd && !(autoFast && !el.classList.contains('expanded')); t.lastMove = Date.now(); player.setSource(source()); arm(); };
+    t.setHd = v => { if (!hasHd || useHd === v) return; useHd = v; player.setSource(source()); arm(); };
     const live = () => { clearTimeout(t.timer); setState(t, 'live'); };
     const arm = () => {
       clearTimeout(t.timer);
       t.timer = setTimeout(() => {
         if (el.dataset.state === 'live') return;
-        if (useHd) { useHd = false; player.src = source(); arm(); }   // HD didn't start: fall back to the light stream
-        else setState(t, 'offline');
+        if (useHd) { useHd = false; player.setSource(source()); arm(); }   // HD didn't start: fall back to the light stream
+        else { setState(t, 'offline'); player.setSource(''); }   // stop trying until the next retry
       }, useHd ? HD_START_TIMEOUT : OFFLINE_AFTER);
     };
 
     grid.appendChild(el);
     player.video.addEventListener('playing', () => { live(); setTimeout(() => capture(t), 2500); });
-    player.video.addEventListener('timeupdate', () => { if (player.video.currentTime > 0 && el.dataset.state !== 'live') live(); });
+    player.video.addEventListener('timeupdate', () => {
+      const ct = player.video.currentTime;
+      if (ct !== t.lastT) { t.lastT = ct; t.lastMove = Date.now(); }
+      if (ct > 0 && el.dataset.state !== 'live') live();
+    });
     player.video.addEventListener('emptied', () => { if (el.dataset.state === 'live') { setState(t, 'connecting'); arm(); } });
     t.snapStart = setTimeout(() => { t.snapTimer = setInterval(() => capture(t), SNAP_EVERY); }, Math.random() * SNAP_EVERY);
-    player.src = source();
+    player.setSource(source());
     arm();
 
     el.addEventListener('click', () => {
@@ -276,7 +296,7 @@ document.getElementById('reload').onclick = load;
 qualityBtn.onclick = () => {
   hdOn = !hdOn;
   autoFast = false;
-  try { localStorage.setItem('cctv-hd', hdOn ? '1' : '0'); localStorage.removeItem('cctv-auto'); } catch (e) {}
+  try { localStorage.setItem('cctv-hd', hdOn ? '1' : '0'); } catch (e) {}
   showQuality();
   load();
 };
@@ -294,7 +314,7 @@ setInterval(() => {
   if (autoFast || !hdOn) { prevQ = new Map(); return; }
   let total = 0, dropped = 0;
   tiles.forEach(t => {
-    if (t.el.dataset.state !== 'live' || !t.hasHd || t.el.classList.contains('expanded')) return;
+    if (t.el.dataset.state !== 'live' || !t.hasHd || t.el.classList.contains('expanded') || t.player.video.paused) return;
     const q = t.player.video.getVideoPlaybackQuality && t.player.video.getVideoPlaybackQuality();
     if (!q) return;
     const p = prevQ.get(t);
@@ -305,11 +325,30 @@ setInterval(() => {
   bad = dropped / total > 0.06 ? bad + 1 : 0;
   if (bad >= 3) {   // about 15 seconds of trouble in a row
     autoFast = true; bad = 0; prevQ = new Map();
-    try { localStorage.setItem('cctv-auto', '1'); } catch (e) {}
     showQuality();
+    setTimeout(() => { if (smallScreen) return; autoFast = false; showQuality(); tiles.forEach(t => t.setHd(true)); }, 30 * 60 * 1000);   // try full quality again later
     tiles.forEach(t => { if (!t.el.classList.contains('expanded')) t.setHd(false); });
   }
 }, 5000);
+
+/* Every 10 s: a live camera whose picture has not moved for 15 s is reconnected;
+   a camera showing NO SIGNAL is tried again every 30 s, so cameras come back by themselves after a power cut. */
+setInterval(() => {
+  const now = Date.now();
+  tiles.forEach(t => {
+    const st = t.el.dataset.state;
+    if (st === 'live' && now - t.lastMove > 15000 && document.visibilityState === 'visible') { setState(t, 'connecting'); t.retry(); }
+    else if (st === 'offline' && now - (t.lastTry || 0) > 30000) { t.lastTry = now; t.retry(true); }
+  });
+}, 10000);
+
+/* View: all channels (4x4) or only the working cameras, filling the screen */
+let onlyLive = false;
+try { onlyLive = localStorage.getItem('cctv-only-live') === '1'; } catch (e) {}
+const viewBtn = document.getElementById('view');
+const showView = () => { viewBtn.textContent = onlyLive ? 'Working only' : `All ${tiles.length || 16}`; grid.classList.toggle('only-live', onlyLive); };
+viewBtn.onclick = () => { onlyLive = !onlyLive; try { localStorage.setItem('cctv-only-live', onlyLive ? '1' : '0'); } catch (e) {} showView(); update(); };
+addEventListener('keydown', e => { if ((e.key === 'w' || e.key === 'W') && !e.ctrlKey && !e.metaKey) viewBtn.click(); });
 
 const clock = document.getElementById('clock');
 const tick = () => clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
