@@ -16,7 +16,7 @@ if (-not $answer.Trim().ToLower().StartsWith('y')) { Write-Host '  Cancelled.'; 
 $stop = Join-Path $InstallDir 'stop.ps1'
 if (Test-Path $stop) { & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File $stop 2>$null | Out-Null }
 Get-Process -Name go2rtc -ErrorAction SilentlyContinue | Stop-Process -Force
-foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Startup'))) {
+foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Programs'))) {
   $lnk = Join-Path $folder 'Office CCTV.lnk'
   if (Test-Path $lnk) { Remove-Item $lnk -Force }
 }

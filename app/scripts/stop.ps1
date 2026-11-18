@@ -16,7 +16,7 @@ try {
 # The wall window
 try {
   Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" |
-    Where-Object { $_.CommandLine -and $_.CommandLine.Contains($profileDir) } |
+    Where-Object { $_.CommandLine -and $_.CommandLine.Contains($dir) } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 } catch { }
 

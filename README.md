@@ -17,7 +17,7 @@ A fast, clean live-view wall for **Dahua** recorders (NVR / DVR / XVR). Works in
    - the recorder (the installer searches your network and lists Dahua devices; pick yours or type its IP)
    - recorder username (usually `admin`) and password
    - how many camera channels it has (16 for a 16-channel recorder)
-4. Say **yes** to "Show the cameras full screen on the second display" for the office TV setup.
+4. Choose how this PC shows the cameras: **[1] In a window** (desktop and Start menu icon) or **[2] Full screen on the second display / TV** (opens by itself when the PC starts). Change later with `install.bat -Window` or `install.bat -Tv`.
 5. The **Office CCTV** icon on the desktop opens the wall in a normal window any time.
 
 The computer must be on the **same network as the recorder** (office Wi-Fi or LAN).

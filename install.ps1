@@ -16,7 +16,9 @@ param(
   [switch]$AutoStart,
   [switch]$NoAutoStart,
   [switch]$NoShortcut,
-  [switch]$Reconfigure
+  [switch]$Reconfigure,
+  [switch]$Window,   # show the cameras in a normal window on this PC
+  [switch]$Tv        # show the cameras full screen on the second display (TV)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -157,7 +159,7 @@ try {
   if (Test-TcpPort '127.0.0.1' 1984 1000) { Write-Warn2 'Something else is still using port 1984. Close it (or restart the PC) if the viewer does not open.' }
 
   # b) Remove old shortcuts
-  foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('CommonDesktopDirectory'))) {
+  foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('CommonDesktopDirectory'))) {
     foreach ($n in @('Office CCTV.lnk', 'CCTV.lnk')) {
       $lnk = Join-Path $folder $n
       if (Test-Path $lnk) { Remove-Item $lnk -Force -ErrorAction SilentlyContinue }
@@ -185,6 +187,8 @@ try {
   New-Item -ItemType Directory -Force -Path $dstWww | Out-Null
   Copy-Item -Path (Join-Path $srcWww '*') -Destination $dstWww -Recurse -Force
   Copy-Item -Path (Join-Path $srcScripts '*.ps1') -Destination $InstallDir -Force
+  $srcIcon = Join-Path $Root 'app\cctv.ico'
+  if (Test-Path $srcIcon) { Copy-Item $srcIcon (Join-Path $InstallDir 'cctv.ico') -Force }
   Get-ChildItem $InstallDir -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
   Write-Ok 'Viewer page and launcher installed'
 
@@ -266,54 +270,61 @@ try {
   }
 
   # ---- 5. Shortcuts and automatic start --------------------------------------------------
-  Write-Step '5/5  Shortcuts and automatic start'
+  Write-Step '5/5  How to show the cameras on this PC'
   $launchPs = Join-Path $InstallDir 'launch.ps1'
   $watchPs  = Join-Path $InstallDir 'watch.ps1'
+  $icon     = Join-Path $InstallDir 'cctv.ico'
   $shell = New-Object -ComObject WScript.Shell
+  $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Office CCTV.lnk'
+  $menuLnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Office CCTV.lnk'
 
-  if (-not $NoShortcut) {
-    $desktop = [Environment]::GetFolderPath('Desktop')
-    $lnk = $shell.CreateShortcut((Join-Path $desktop 'Office CCTV.lnk'))
-    $lnk.TargetPath = $PS
-    $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launchPs`""
-    $lnk.WorkingDirectory = $InstallDir
-    if ($browser) { $lnk.IconLocation = "$browser,0" }
-    $lnk.Description = 'Open the Office CCTV wall in a window'
-    $lnk.Save()
-    Write-Ok 'Desktop shortcut created: Office CCTV (opens the wall in a window)'
+  function New-Link($path, $script, $desc) {
+    $l = $shell.CreateShortcut($path)
+    $l.TargetPath = $PS
+    $l.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
+    $l.WorkingDirectory = $InstallDir
+    if (Test-Path $icon) { $l.IconLocation = "$icon,0" } elseif ($browser) { $l.IconLocation = "$browser,0" }
+    $l.Description = $desc
+    $l.Save()
   }
 
-  $auto = $true
-  if ($NoAutoStart) { $auto = $false }
-  elseif ($Prefilled -and -not $Reconfigure) { $auto = $true }
-  elseif (-not $AutoStart) { $auto = Ask-YesNo '   Show the cameras full screen on the second display (TV/monitor) every time this PC starts?' $true }
-  $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Office CCTV.lnk'
-  if ($auto) {
-    $s = $shell.CreateShortcut($startupLnk)
-    $s.TargetPath = $PS
-    $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchPs`""
-    $s.WorkingDirectory = $InstallDir
-    if ($browser) { $s.IconLocation = "$browser,0" }
-    $s.Description = 'Office CCTV: show the wall on the second display'
-    $s.Save()
-    Write-Ok 'Automatic start is on: the wall opens on the second display whenever one is connected'
-  } elseif (Test-Path $startupLnk) {
-    Remove-Item $startupLnk -Force
-    Write-Ok 'Automatic start is off'
+  # Mode: TV = full screen on the second display, opens by itself. Window = normal window with a desktop icon.
+  if ($Tv) { $mode = 'tv' }
+  elseif ($Window -or $NoAutoStart) { $mode = 'window' }
+  elseif ($AutoStart) { $mode = 'tv' }
+  else {
+    Write-Host '   [1] In a window on this PC (desktop icon, you open it when you want)'
+    Write-Host '   [2] Full screen on the second display / TV, opens by itself when the PC starts'
+    $pick = Read-Host '   Choose 1 or 2 [1]'
+    $mode = if ($pick.Trim() -eq '2') { 'tv' } else { 'window' }
+  }
+
+  if (-not $NoShortcut) {
+    New-Link (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Office CCTV.lnk') $launchPs 'Open the Office CCTV cameras in a window'
+    New-Link $menuLnk $launchPs 'Open the Office CCTV cameras in a window'
+    Write-Ok "Desktop and Start menu icon created: Office CCTV"
+  }
+
+  if ($mode -eq 'tv') {
+    New-Link $startupLnk $watchPs 'Office CCTV: show the cameras on the second display'
+    Write-Ok 'TV mode: the cameras open full screen on the second display whenever one is connected'
+  } else {
+    if (Test-Path $startupLnk) { Remove-Item $startupLnk -Force }
+    Write-Ok 'Window mode: nothing opens by itself; use the Office CCTV icon'
   }
 
   Write-Host ''
   Write-Host '  Installed.' -ForegroundColor Green
-  Write-Host "  - 'Office CCTV' on the desktop opens the wall in a normal window."
-  if ($auto) {
-    Write-Host '  - The wall opens by itself on the second display after you sign in to Windows.'
-    Write-Host '  - For it to come back after a restart or power cut with nobody at the PC, set Windows to'
-    Write-Host '    sign in automatically (press Win+R, type netplwiz, untick "Users must enter a user name and password").'
-    Write-Host '  - Set the display mode to Extend (Win+P), not Duplicate, so Windows sees the second screen.'
-    if ($Prefilled -or (Ask-YesNo '  Start it now?' $true)) {
-      Start-Process -FilePath $PS -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchPs`""
-    }
-  } elseif (Ask-YesNo '  Open it now?' $true) {
+  if ($mode -eq 'tv') {
+    Write-Host '  - The cameras open by themselves full screen on the second display after you sign in.'
+    Write-Host '  - Close the TV wall: Alt+F4 (it reopens). Stop it completely: run stop.ps1 in the install folder.'
+    Write-Host '  - After a restart or power cut with nobody at the PC: set Windows to sign in automatically'
+    Write-Host '    (Win+R, netplwiz, untick "Users must enter a user name and password").'
+    Write-Host '  - Display mode must be Extend (Win+P), not Duplicate.'
+    Start-Process -FilePath $PS -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchPs`""
+  } else {
+    Write-Host "  - Open the cameras with the 'Office CCTV' icon on the desktop or in the Start menu."
+    Write-Host '  - To switch this PC to TV mode later: install.bat -Tv'
     Start-Process -FilePath $PS -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launchPs`""
   }
 }

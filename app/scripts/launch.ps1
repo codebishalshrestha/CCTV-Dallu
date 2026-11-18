@@ -25,4 +25,9 @@ foreach ($c in @(
   "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")) {
   if ($c -and (Test-Path $c)) { $browser = $c; break }
 }
-if ($browser) { Start-Process -FilePath $browser -ArgumentList "--app=$url" } else { Start-Process $url }
+$profileDir = Join-Path $dir 'window-profile'
+if ($browser) {
+  Start-Process -FilePath $browser -ArgumentList @(
+    "--app=$url", "--user-data-dir=`"$profileDir`"", '--no-first-run', '--no-default-browser-check',
+    '--window-size=1280,760', '--autoplay-policy=no-user-gesture-required', '--disable-features=CalculateNativeWinOcclusion')
+} else { Start-Process $url }
