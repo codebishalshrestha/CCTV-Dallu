@@ -102,10 +102,26 @@
   @keyframes pop { from { opacity: .5; transform: scale(.98); } to { opacity: 1; transform: none; } }
 
   #grid.only-live .tile[data-state="offline"] { display: none; }
+  main { position: relative; }
+  #notice {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 25;
+    max-width: 520px; padding: 18px 22px; border-radius: 16px; text-align: center;
+    background: rgba(20,21,24,.86); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,.08); display: flex; flex-direction: column; gap: 6px;
+  }
+  #notice[hidden] { display: none; }
+  #notice b { font-size: 15px; font-weight: 600; }
+  #notice span { color: var(--muted); }
   #empty { grid-column: 1 / -1; align-self: center; text-align: center; color: var(--muted); background: var(--bg); }
 
-  /* Wall mode (?wall): for a dedicated screen. No top bar, cursor hides when idle. */
-  body.wall header { display: none; }
+  /* Wall mode (?wall): for a dedicated screen. Top bar and cursor appear only while the mouse moves. */
+  /* The top bar slides in over the cameras when the mouse moves, and hides again after 3 s */
+  body.wall header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+    transform: translateY(-100%); opacity: 0;
+    transition: transform .35s var(--ease), opacity .35s var(--ease);
+  }
+  body.wall:not(.idle) header { transform: none; opacity: 1; }
   body.wall.idle, body.wall.idle * { cursor: none !important; }
 
   @media (max-width: 700px) { #clock { display: none; } }
@@ -118,11 +134,11 @@
   <div class="summary"><span class="dot"></span><span id="summary">Connecting…</span></div>
   <div class="spacer"></div>
   <span id="clock"></span>
-  <button class="btn" id="view" title="Show only working cameras, or all channels">All 16</button>
+  <button class="btn" id="view" title="Show only working cameras, or all channels (key: W)">All 16</button>
   <button class="btn" id="quality" title="Switch between full quality and light streams">HD</button>
   <button class="btn" id="reload">Reload</button>
 </header>
-<main><div id="grid"></div></main>
+<main><div id="grid"></div><div id="notice" hidden></div></main>
 
 <script type="module">
 import { VideoRTC } from './video-rtc.js';
@@ -178,8 +194,8 @@ function showSnap(t) {
 }
 
 function capture(t) {
-  const v = t.player.video;
-  if (t.el.dataset.state !== 'live' || !v.videoWidth) return;
+  const v = t.player && t.player.video;
+  if (!v || t.el.dataset.state !== 'live' || !v.videoWidth) return;
   try {
     const c = document.createElement('canvas');
     c.width = 320; c.height = Math.round(320 * v.videoHeight / v.videoWidth);
@@ -187,6 +203,16 @@ function capture(t) {
     snaps[t.name] = { img: c.toDataURL('image/jpeg', .6), ts: Date.now() };
     saveSnaps();
   } catch (e) {}
+}
+
+/* Close a player for good without the media-error noise of resetting its video */
+function kill(p) {
+  if (p.reconnectTID) { clearTimeout(p.reconnectTID); p.reconnectTID = 0; }
+  p.wsState = WebSocket.CLOSED; p.pcState = WebSocket.CLOSED;
+  if (p.ws) { try { p.ws.close(); } catch (e) {} p.ws = null; }
+  if (p.pc) { try { p.pc.close(); } catch (e) {} p.pc = null; }
+  if (p.video) { p.video.onerror = null; p.video.pause(); p.video.removeAttribute('src'); p.video.srcObject = null; }
+  p.remove();
 }
 
 /* Working cameras first (in number order); cameras with no signal fill the last slots. */
@@ -226,8 +252,8 @@ const showQuality = () => { qualityBtn.textContent = hdOn ? (autoFast ? 'Auto' :
 showQuality();
 
 function build(all) {
+  tiles.forEach(t => { clearTimeout(t.timer); clearTimeout(t.snapStart); clearInterval(t.snapTimer); t.stop && t.stop(); });
   grid.innerHTML = '';
-  tiles.forEach(t => { clearTimeout(t.timer); clearTimeout(t.snapStart); clearInterval(t.snapTimer); });
   tiles = [];
   const hdNames = new Set(all.filter(n => n.endsWith('_hd')));
   const names = all.filter(n => !n.endsWith('_hd'));
@@ -241,40 +267,60 @@ function build(all) {
     el.dataset.state = 'connecting';
     el.innerHTML = `<img class="snap" alt=""><div class="off">${ICON}<span>No signal</span><small></small></div><div class="label"><i></i>${pretty(name)}</div>`;
 
-    const player = document.createElement('cam-player');
-    player.className = 'cam';
-    player.mode = 'mse';   // reliable TCP delivery: no blocky/smeared frames from dropped packets
-    el.prepend(player);
-
-    const t = { name, el, player, snap: el.querySelector('.snap'), seen: el.querySelector('.off small'), timer: 0, snapTimer: 0, snapStart: 0 };
+    const t = { name, el, player: null, snap: el.querySelector('.snap'), seen: el.querySelector('.off small'), timer: 0, snapTimer: 0, snapStart: 0 };
     const hasHd = hdNames.has(name + '_hd');
     let useHd = hdOn && hasHd && !autoFast;
     const source = () => new URL('api/ws?src=' + encodeURIComponent(useHd ? name + '_hd' : name), location.href);
     t.hasHd = hasHd;
     t.lastT = 0; t.lastMove = Date.now();
-    /* Reconnect from scratch (after a power cut the recorder and cameras come back minutes later) */
-    t.retry = (light) => { useHd = !light && hdOn && hasHd && !(autoFast && !el.classList.contains('expanded')); t.lastMove = Date.now(); player.setSource(source()); arm(); };
-    t.setHd = v => { if (!hasHd || useHd === v) return; useHd = v; player.setSource(source()); arm(); };
-    const live = () => { clearTimeout(t.timer); setState(t, 'live'); };
+    const live = () => {
+      clearTimeout(t.timer); setState(t, 'live');
+      if (t.hdTried && !useHd) t.hdFail = Date.now();   // HD failed but the light stream works: HD itself is the problem
+      t.hdTried = false;
+      // came back on the light stream (retry after a power cut): move up to full quality unless HD failed recently
+      if (!useHd && hasHd && hdOn && !autoFast && Date.now() - (t.hdFail || 0) > 10 * 60 * 1000) {
+        clearTimeout(t.upTimer); t.upTimer = setTimeout(() => { if (el.dataset.state === 'live') t.setHd(true); }, 4000);
+      }
+    };
+
+    /* Every connect gets a brand-new player. Reusing one let the old socket's late "closed" event
+       knock out the new connection, which left cameras stuck on "connecting" or double-fed. */
+    const mount = (url) => {
+      const old = t.player;
+      if (old) kill(old);
+      const p = document.createElement('cam-player');
+      p.className = 'cam';
+      p.mode = 'mse';   // reliable TCP delivery: no blocky/smeared frames from dropped packets
+      el.prepend(p);    // el is already on the page, so this creates p.video
+      t.player = p;
+      t.lastT = 0; t.lastMove = Date.now();
+      const v = p.video;
+      v.addEventListener('playing', () => { if (t.player !== p) return; live(); setTimeout(() => capture(t), 2500); });
+      v.addEventListener('timeupdate', () => {
+        if (t.player !== p) return;
+        const ct = v.currentTime;
+        if (ct !== t.lastT) { t.lastT = ct; t.lastMove = Date.now(); }
+        if (ct > 0 && el.dataset.state !== 'live') live();
+      });
+      if (url) p.src = url;
+    };
+    t.stop = () => { if (t.player) { kill(t.player); t.player = null; } };
+
     const arm = () => {
       clearTimeout(t.timer);
       t.timer = setTimeout(() => {
         if (el.dataset.state === 'live') return;
-        if (useHd) { useHd = false; player.setSource(source()); arm(); }   // HD didn't start: fall back to the light stream
-        else { setState(t, 'offline'); player.setSource(''); }   // stop trying until the next retry
+        if (useHd) { useHd = false; t.hdTried = true; mount(source()); arm(); }   // HD didn't start: fall back to the light stream
+        else { t.hdTried = false; setState(t, 'offline'); t.stop(); }               // stop until the next retry
       }, useHd ? HD_START_TIMEOUT : OFFLINE_AFTER);
     };
+    /* Reconnect from scratch (after a power cut the recorder and cameras come back minutes later) */
+    t.retry = (light) => { useHd = !light && hdOn && hasHd && !(autoFast && !el.classList.contains('expanded')); mount(source()); arm(); };
+    t.setHd = v => { if (!hasHd || useHd === v) return; useHd = v; if (el.dataset.state === 'live') setState(t, 'connecting'); mount(source()); arm(); };
 
     grid.appendChild(el);
-    player.video.addEventListener('playing', () => { live(); setTimeout(() => capture(t), 2500); });
-    player.video.addEventListener('timeupdate', () => {
-      const ct = player.video.currentTime;
-      if (ct !== t.lastT) { t.lastT = ct; t.lastMove = Date.now(); }
-      if (ct > 0 && el.dataset.state !== 'live') live();
-    });
-    player.video.addEventListener('emptied', () => { if (el.dataset.state === 'live') { setState(t, 'connecting'); arm(); } });
     t.snapStart = setTimeout(() => { t.snapTimer = setInterval(() => capture(t), SNAP_EVERY); }, Math.random() * SNAP_EVERY);
-    player.setSource(source());
+    mount(source());
     arm();
 
     el.addEventListener('click', () => {
@@ -287,10 +333,30 @@ function build(all) {
   update();
 }
 
+/* Big message on the wall itself (the top bar is hidden on the TV) */
+const notice = document.getElementById('notice');
+const say = (title, text) => { notice.hidden = !title; if (title) notice.innerHTML = `<b>${title}</b><span>${text}</span>`; };
+
+let loadTimer = 0;
 function load() {
-  fetch('api/streams').then(r => r.json()).then(o => build(Object.keys(o)))
-    .catch(() => { summary.textContent = 'Viewer not running. Start start.bat'; });
+  clearTimeout(loadTimer);
+  fetch('api/streams', { cache: 'no-store' }).then(r => { if (!r.ok) throw 0; return r.json(); })
+    .then(o => { say(''); build(Object.keys(o)); })
+    .catch(() => {
+      summary.textContent = 'Viewer engine not running';
+      say('Starting the viewer…', 'The streaming engine (go2rtc) is not answering yet. Retrying every 5 seconds.');
+      loadTimer = setTimeout(load, 5000);   // the wall may open before go2rtc is ready
+    });
 }
+
+/* Nothing at all has connected for a while: most likely the recorder is off, rebooting, or has a new IP */
+setInterval(() => {
+  if (!tiles.length || !notice.hidden && notice.dataset.kind !== 'rec') return;
+  const anyLive = tiles.some(t => t.el.dataset.state === 'live');
+  const allOff = tiles.every(t => t.el.dataset.state === 'offline');
+  if (allOff && !anyLive) { notice.dataset.kind = 'rec'; say('Cannot reach the recorder', 'Check that this PC is on the office network and the recorder is on. After a power cut it can take 2–3 minutes. Cameras reconnect by themselves.'); }
+  else if (notice.dataset.kind === 'rec') { notice.dataset.kind = ''; say(''); }
+}, 5000);
 
 document.getElementById('reload').onclick = load;
 qualityBtn.onclick = () => {
@@ -314,7 +380,7 @@ setInterval(() => {
   if (autoFast || !hdOn) { prevQ = new Map(); return; }
   let total = 0, dropped = 0;
   tiles.forEach(t => {
-    if (t.el.dataset.state !== 'live' || !t.hasHd || t.el.classList.contains('expanded') || t.player.video.paused) return;
+    if (t.el.dataset.state !== 'live' || !t.hasHd || t.el.classList.contains('expanded') || !t.player || t.player.video.paused) return;
     const q = t.player.video.getVideoPlaybackQuality && t.player.video.getVideoPlaybackQuality();
     if (!q) return;
     const p = prevQ.get(t);
@@ -365,8 +431,11 @@ document.addEventListener('visibilitychange', keepAwake);
 if (WALL) {
   /* Hide the mouse pointer after 3 seconds without movement */
   let idleTimer = 0;
-  const wake = () => { document.body.classList.remove('idle'); clearTimeout(idleTimer); idleTimer = setTimeout(() => document.body.classList.add('idle'), 3000); };
-  addEventListener('mousemove', wake); wake();
+  const bar = document.querySelector('header');
+  let held = 0;
+  const sleep = () => { if (bar.matches(':hover') && held++ < 6) idleTimer = setTimeout(sleep, 3000); else document.body.classList.add('idle'); };
+  const wake = () => { held = 0; document.body.classList.remove('idle'); clearTimeout(idleTimer); idleTimer = setTimeout(sleep, 3000); };
+  ['mousemove', 'mousedown', 'touchstart', 'keydown'].forEach(ev => addEventListener(ev, wake, { passive: true })); wake();
   /* Fresh start every 6 hours keeps a screen that runs for weeks healthy */
   setTimeout(() => location.reload(), 6 * 60 * 60 * 1000);
 }

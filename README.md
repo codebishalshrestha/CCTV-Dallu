@@ -37,7 +37,7 @@ Nothing else is installed. No admin rights are needed.
 ## Everyday use
 
 - **Open:** double-click *Office CCTV* on the desktop.
-- **All 16 / Working only** button (top bar, or press **W**): show every channel in a 4×4 wall, or only the cameras that are working, filling the screen.
+- **All 16 / Working only** button (top bar, or press **W**; on the TV wall move the mouse onto the TV and the top bar slides in): show every channel in a 4×4 wall, or only the cameras that are working, filling the screen.
 - Cameras that lose signal (power cut, recorder restart) are retried every 30 seconds and come back on their own.
 - **HD / Fast** button (top bar): HD uses the recorder's main streams. Switch to Fast on a slow computer.
 - **Stop it** (including the watcher, so it does not reopen): right-click `%LOCALAPPDATA%\OfficeCCTV\stop.ps1` → *Run with PowerShell*.
