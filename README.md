@@ -77,7 +77,7 @@ Install it on each computer with the steps above. Each one connects to the recor
 | Picture stutters | Click **HD** to switch to **Fast**, close other heavy programs. |
 | Windows warns about `go2rtc.exe` | It is unsigned open-source software. The installer checks its checksum. Choose *More info → Run anyway* if SmartScreen asks. |
 | Special characters in the password | Handled automatically. |
-| Recorder uses H.265 only | Browsers may not play H.265. Set the recorder's main/sub stream encoding to **H.264**. |
+| Tile says **Video format not supported** (works in SmartPSS) | That camera sends H.265, which many browsers cannot show. The viewer tries the camera's other stream first. To fix: recorder web page → *Camera → Encode*, pick the channel, set **Compression: H.264** for Main and Sub Stream, Save. |
 
 ## Security
 

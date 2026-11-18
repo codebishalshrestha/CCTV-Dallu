@@ -96,6 +96,8 @@
   .tile[data-state="offline"].has-snap .off svg { display: none; }
   .tile[data-state="offline"].has-snap .off small { color: #a9acb3; }
 
+  .tile.fmt .off span { color: #b8935a; }
+  .tile.fmt .off small { color: #8d8f96; }
   .tile.expanded { position: fixed; inset: 0; z-index: 20; cursor: zoom-out; animation: pop .3s var(--ease); }
   .tile.expanded video { object-fit: contain; }
   .tile.expanded .label { left: 16px; top: 16px; font-size: 13px; }
@@ -189,6 +191,7 @@ function seenText(ts) {
 function showSnap(t) {
   const s = snaps[t.name];
   t.el.classList.toggle('has-snap', !!s);
+  if (t.fmt) { t.el.classList.remove('has-snap'); t.seen.textContent = 'Set this camera to H.264 in the recorder'; return; }
   if (s) { t.snap.src = s.img; t.seen.textContent = seenText(s.ts); }
   else t.seen.textContent = '';
 }
@@ -211,7 +214,7 @@ function kill(p) {
   p.wsState = WebSocket.CLOSED; p.pcState = WebSocket.CLOSED;
   if (p.ws) { try { p.ws.close(); } catch (e) {} p.ws = null; }
   if (p.pc) { try { p.pc.close(); } catch (e) {} p.pc = null; }
-  if (p.video) { p.video.onerror = null; p.video.pause(); p.video.removeAttribute('src'); p.video.srcObject = null; }
+  if (p.video) { p.video.onerror = null; p.video.pause(); }   // detached element is freed by the browser
   p.remove();
 }
 
@@ -230,6 +233,10 @@ function update() {
 }
 
 function setState(t, s) {
+  if (s === 'live') t.fmt = false;
+  const reason = t.el.querySelector('.off span');
+  if (reason) reason.textContent = t.fmt ? 'Video format not supported' : 'No signal';
+  t.el.classList.toggle('fmt', !!t.fmt);
   if (t.el.dataset.state === s) return;
   t.el.dataset.state = s;
   if (s === 'offline') showSnap(t);
@@ -269,7 +276,7 @@ function build(all) {
 
     const t = { name, el, player: null, snap: el.querySelector('.snap'), seen: el.querySelector('.off small'), timer: 0, snapTimer: 0, snapStart: 0 };
     const hasHd = hdNames.has(name + '_hd');
-    let useHd = hdOn && hasHd && !autoFast;
+    let useHd = hdOn && hasHd && !autoFast;   // t.hdBadFmt: main stream is in a format this browser cannot show
     const source = () => new URL('api/ws?src=' + encodeURIComponent(useHd ? name + '_hd' : name), location.href);
     t.hasHd = hasHd;
     t.lastT = 0; t.lastMove = Date.now();
@@ -278,7 +285,8 @@ function build(all) {
       if (t.hdTried && !useHd) t.hdFail = Date.now();   // HD failed but the light stream works: HD itself is the problem
       t.hdTried = false;
       // came back on the light stream (retry after a power cut): move up to full quality unless HD failed recently
-      if (!useHd && hasHd && hdOn && !autoFast && Date.now() - (t.hdFail || 0) > 10 * 60 * 1000) {
+      t.fmtTried = false;
+      if (!useHd && hasHd && hdOn && !autoFast && !t.hdBadFmt && Date.now() - (t.hdFail || 0) > 10 * 60 * 1000) {
         clearTimeout(t.upTimer); t.upTimer = setTimeout(() => { if (el.dataset.state === 'live') t.setHd(true); }, 4000);
       }
     };
@@ -295,14 +303,28 @@ function build(all) {
       t.player = p;
       t.lastT = 0; t.lastMove = Date.now();
       const v = p.video;
-      v.addEventListener('playing', () => { if (t.player !== p) return; live(); setTimeout(() => capture(t), 2500); });
+      /* Only a real picture counts as live. A stream that plays but has no picture (only sound) means
+         the browser cannot decode the camera's video format, usually H.265. */
+      clearTimeout(t.noVidTimer); t.noVidTimer = 0;
+      const check = () => {
+        if (t.player !== p) return;
+        if (v.videoWidth > 0) { clearTimeout(t.noVidTimer); t.noVidTimer = 0; if (el.dataset.state !== 'live') { live(); setTimeout(() => capture(t), 2500); } }
+        else if (!t.noVidTimer) t.noVidTimer = setTimeout(() => { if (t.player === p && !v.videoWidth) noPicture(); }, 6000);
+      };
+      v.addEventListener('playing', () => { if (v.currentTime > 0) check(); });
       v.addEventListener('timeupdate', () => {
         if (t.player !== p) return;
         const ct = v.currentTime;
         if (ct !== t.lastT) { t.lastT = ct; t.lastMove = Date.now(); }
-        if (ct > 0 && el.dataset.state !== 'live') live();
+        if (ct > 0) check();
       });
       if (url) p.src = url;
+    };
+    /* Connected, but no picture: try the other stream (main/sub can use different formats), then explain on the tile */
+    const noPicture = () => {
+      if (hasHd && !t.fmtTried) { t.fmtTried = true; if (useHd) t.hdBadFmt = true; useHd = !useHd; mount(source()); arm(); return; }
+      t.fmt = true; t.fmtTried = false;
+      setState(t, 'offline'); t.stop();
     };
     t.stop = () => { if (t.player) { kill(t.player); t.player = null; } };
 
@@ -315,8 +337,8 @@ function build(all) {
       }, useHd ? HD_START_TIMEOUT : OFFLINE_AFTER);
     };
     /* Reconnect from scratch (after a power cut the recorder and cameras come back minutes later) */
-    t.retry = (light) => { useHd = !light && hdOn && hasHd && !(autoFast && !el.classList.contains('expanded')); mount(source()); arm(); };
-    t.setHd = v => { if (!hasHd || useHd === v) return; useHd = v; if (el.dataset.state === 'live') setState(t, 'connecting'); mount(source()); arm(); };
+    t.retry = (light) => { useHd = !light && hdOn && hasHd && !t.hdBadFmt && !(autoFast && !el.classList.contains('expanded')); mount(source()); arm(); };
+    t.setHd = v => { if (!hasHd || useHd === v || (v && t.hdBadFmt)) return; useHd = v; if (el.dataset.state === 'live') setState(t, 'connecting'); mount(source()); arm(); };
 
     grid.appendChild(el);
     t.snapStart = setTimeout(() => { t.snapTimer = setInterval(() => capture(t), SNAP_EVERY); }, Math.random() * SNAP_EVERY);
@@ -404,7 +426,7 @@ setInterval(() => {
   tiles.forEach(t => {
     const st = t.el.dataset.state;
     if (st === 'live' && now - t.lastMove > 15000 && document.visibilityState === 'visible') { setState(t, 'connecting'); t.retry(); }
-    else if (st === 'offline' && now - (t.lastTry || 0) > 30000) { t.lastTry = now; t.retry(true); }
+    else if (st === 'offline' && now - (t.lastTry || 0) > (t.fmt ? 120000 : 30000)) { t.lastTry = now; t.retry(!t.fmt); }
   });
 }, 10000);
 
