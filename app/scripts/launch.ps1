@@ -2,6 +2,7 @@
   Opens the camera wall in a normal window on this computer (the "Office CCTV" desktop icon).
   Starts go2rtc first if it is not running.
 #>
+param([switch]$EngineOnly)   # -EngineOnly: just keep go2rtc running so http://localhost:1984/ works
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ver = try { (Get-Item (Join-Path $dir 'www\index.html')).LastWriteTime.Ticks } catch { 0 }
 $url = "http://localhost:1984/index.html?v=$ver"
@@ -15,6 +16,8 @@ if (-not (Test-Port 1984)) {
   Start-Process -FilePath (Join-Path $dir 'go2rtc.exe') -ArgumentList '-config', 'go2rtc.yaml' -WorkingDirectory $dir -WindowStyle Hidden
   for ($i = 0; $i -lt 20; $i++) { if (Test-Port 1984) { break }; Start-Sleep -Milliseconds 500 }
 }
+
+if ($EngineOnly) { exit 0 }
 
 $browser = $null
 foreach ($c in @(

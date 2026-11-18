@@ -309,8 +309,15 @@ try {
     New-Link $startupLnk $watchPs 'Office CCTV: show the cameras on the second display'
     Write-Ok 'TV mode: the cameras open full screen on the second display whenever one is connected'
   } else {
-    if (Test-Path $startupLnk) { Remove-Item $startupLnk -Force }
-    Write-Ok 'Window mode: nothing opens by itself; use the Office CCTV icon'
+    # Keep only the streaming engine running from sign-in, so the link http://localhost:1984/ always works
+    $l = $shell.CreateShortcut($startupLnk)
+    $l.TargetPath = $PS
+    $l.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launchPs`" -EngineOnly"
+    $l.WorkingDirectory = $InstallDir
+    if (Test-Path $icon) { $l.IconLocation = "$icon,0" }
+    $l.Description = 'Office CCTV: start the streaming engine (no window)'
+    $l.Save()
+    Write-Ok 'Window mode: nothing opens by itself. Open http://localhost:1984/ or the Office CCTV icon any time'
   }
 
   Write-Host ''
@@ -323,7 +330,7 @@ try {
     Write-Host '  - Display mode must be Extend (Win+P), not Duplicate.'
     Start-Process -FilePath $PS -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchPs`""
   } else {
-    Write-Host "  - Open the cameras with the 'Office CCTV' icon on the desktop or in the Start menu."
+    Write-Host "  - Open the cameras with the 'Office CCTV' icon, or bookmark http://localhost:1984/ in your browser."
     Write-Host '  - To switch this PC to TV mode later: install.bat -Tv'
     Start-Process -FilePath $PS -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launchPs`""
   }
