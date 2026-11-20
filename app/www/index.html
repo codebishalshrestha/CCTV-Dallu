@@ -283,7 +283,7 @@ function build(all) {
     t.hasHd = hasHd;
     t.lastT = 0; t.lastMove = Date.now();
     const live = () => {
-      clearTimeout(t.timer); setState(t, 'live');
+      clearTimeout(t.timer); setState(t, 'live'); t.backoff = 0;
       if (t.hdTried && !useHd) t.hdFail = Date.now();   // HD failed but the light stream works: HD itself is the problem
       t.hdTried = false;
       // came back on the light stream (retry after a power cut): move up to full quality unless HD failed recently
@@ -428,7 +428,10 @@ setInterval(() => {
   tiles.forEach(t => {
     const st = t.el.dataset.state;
     if (st === 'live' && now - t.lastMove > 15000 && document.visibilityState === 'visible') { setState(t, 'connecting'); t.retry(); }
-    else if (st === 'offline' && now - (t.lastTry || 0) > (t.fmt ? 120000 : 30000)) { t.lastTry = now; t.retry(!t.fmt); }
+    // Back off: 30 s, 1, 2, 4 then every 5 min, so a dead camera does not flood the recorder with logins
+    else if (st === 'offline' && now - (t.lastTry || 0) > (t.fmt ? 300000 : (t.backoff || 30000))) {
+      t.lastTry = now; t.backoff = Math.min((t.backoff || 30000) * 2, 300000); t.retry(!t.fmt);
+    }
   });
 }, 10000);
 
